@@ -235,12 +235,8 @@ def dump_wechat_info_v3(version_list, pid) -> WeChatInfo:
 
     Handle = ctypes.windll.kernel32.OpenProcess(0x1F0FFF, False, process.pid)
 
-    bias_list = version_list.get(wechat_info.version)
-    if not isinstance(bias_list, list) or len(bias_list) <= 4:
-        wechat_info.errcode = 405
-        wechat_info.errmsg = '错误！微信版本不匹配，请手动填写信息。'
-        return wechat_info
-    else:
+    bias_list = version_list.get(wechat_info.version) if isinstance(version_list, dict) else None
+    if isinstance(bias_list, list) and len(bias_list) > 4:
         name_base_address = wechat_base_address + bias_list[0]
         account__base_address = wechat_base_address + bias_list[1]
         mobile_base_address = wechat_base_address + bias_list[2]
@@ -248,6 +244,11 @@ def dump_wechat_info_v3(version_list, pid) -> WeChatInfo:
         wechat_info.account_name = get_info_without_key(Handle, account__base_address, 32) if bias_list[1] != 0 else "None"
         wechat_info.phone = get_info_without_key(Handle, mobile_base_address, 64) if bias_list[2] != 0 else "None"
         wechat_info.nick_name = get_info_without_key(Handle, name_base_address, 64) if bias_list[0] != 0 else "None"
+    else:
+        # This recovered repo no longer includes version_list.json.
+        # Continue in minimal mode so wxid / data dir / database key can still be extracted.
+        wechat_info.errcode = 405
+        wechat_info.errmsg = '缺少版本偏移表，使用最小化 3.x 扫描模式。'
 
     addrLen = get_exe_bit(process.exe()) // 8
 
@@ -259,5 +260,11 @@ def dump_wechat_info_v3(version_list, pid) -> WeChatInfo:
         wechat_info.errmsg = '请重启微信后重试。'
     else:
         wechat_info.errcode = 200
+        if not wechat_info.nick_name:
+            wechat_info.nick_name = wechat_info.wxid
+        if not wechat_info.account_name:
+            wechat_info.account_name = wechat_info.wxid
+        if wechat_info.errmsg == '缺少版本偏移表，使用最小化 3.x 扫描模式。':
+            wechat_info.errmsg = '最小化 3.x 扫描模式。'
     return wechat_info
 

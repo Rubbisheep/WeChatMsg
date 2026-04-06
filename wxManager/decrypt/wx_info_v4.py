@@ -31,6 +31,13 @@ from wxManager.decrypt.common import get_version
 # 定义必要的常量
 PROCESS_ALL_ACCESS = 0x1F0FFF
 PAGE_READWRITE = 0x04
+PAGE_READONLY = 0x02
+PAGE_WRITECOPY = 0x08
+PAGE_EXECUTE_READ = 0x20
+PAGE_EXECUTE_READWRITE = 0x40
+PAGE_EXECUTE_WRITECOPY = 0x80
+PAGE_GUARD = 0x100
+PAGE_NOACCESS = 0x01
 MEM_COMMIT = 0x1000
 MEM_PRIVATE = 0x20000
 
@@ -94,13 +101,23 @@ def get_memory_regions(process_handle):
     regions = []
     mbi = MEMORY_BASIC_INFORMATION()
     address = 0
+    readable_flags = {
+        PAGE_READONLY,
+        PAGE_READWRITE,
+        PAGE_WRITECOPY,
+        PAGE_EXECUTE_READ,
+        PAGE_EXECUTE_READWRITE,
+        PAGE_EXECUTE_WRITECOPY,
+    }
     while ctypes.windll.kernel32.VirtualQueryEx(
             process_handle,
             ctypes.c_void_p(address),
             ctypes.byref(mbi),
             ctypes.sizeof(mbi)
     ):
-        if mbi.State == MEM_COMMIT and mbi.Type == MEM_PRIVATE:
+        protect = mbi.Protect & 0xFF
+        is_guarded = bool(mbi.Protect & PAGE_GUARD)
+        if mbi.State == MEM_COMMIT and not is_guarded and protect in readable_flags:
             regions.append((mbi.BaseAddress, mbi.RegionSize))
         address += mbi.RegionSize
     return regions
@@ -477,13 +494,29 @@ def dump_wechat_info_v4(pid) -> WeChatInfo | None:
     wechat_info.wx_dir = get_wx_dir(process_handle)
     # print(wx_dir_cnt)
     if not wechat_info.wx_dir:
+        wechat_info.errmsg = 'failed to locate WeChat db_storage path in memory'
         return wechat_info
-    db_file_path = os.path.join(wechat_info.wx_dir, 'favorite', 'favorite_fts.db')
-    if not os.path.exists(db_file_path):
-        db_file_path = os.path.join(wechat_info.wx_dir, 'head_image', 'head_image.db')
-    with open(db_file_path, 'rb') as f:
-        buf = f.read()
-    wechat_info.key = get_key(pid, process_handle, buf)
+    db_candidates = [
+        os.path.join(wechat_info.wx_dir, 'favorite', 'favorite_fts.db'),
+        os.path.join(wechat_info.wx_dir, 'head_image', 'head_image.db'),
+        os.path.join(wechat_info.wx_dir, 'biz', 'biz.db'),
+        os.path.join(wechat_info.wx_dir, 'contact', 'contact.db'),
+        os.path.join(wechat_info.wx_dir, 'session', 'session.db'),
+    ]
+    existing_candidates = [path for path in db_candidates if os.path.exists(path)]
+    if not existing_candidates:
+        wechat_info.errmsg = 'no candidate database file found under db_storage'
+        ctypes.windll.kernel32.CloseHandle(process_handle)
+        return wechat_info
+
+    for db_file_path in existing_candidates:
+        with open(db_file_path, 'rb') as f:
+            buf = f.read()
+        wechat_info.key = get_key(pid, process_handle, buf)
+        if wechat_info.key:
+            wechat_info.errmsg = f'key verified with {os.path.basename(db_file_path)}'
+            break
+
     ctypes.windll.kernel32.CloseHandle(process_handle)
     wechat_info.wxid = '_'.join(wechat_info.wx_dir.split('\\')[-3].split('_')[0:-1])
     wechat_info.wx_dir = '\\'.join(wechat_info.wx_dir.split('\\')[:-2])
@@ -495,6 +528,8 @@ def dump_wechat_info_v4(pid) -> WeChatInfo | None:
         wechat_info.account_name = nickname_info.get('account_name', '')
     if not wechat_info.key:
         wechat_info.errcode = 404
+        if not wechat_info.errmsg:
+            wechat_info.errmsg = 'memory scan did not produce a valid key candidate'
     else:
         wechat_info.errcode = 200
     return wechat_info

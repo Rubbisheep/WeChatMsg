@@ -89,8 +89,17 @@ def get_local_type(type_: MessageType):
 
 
 class Msg(DataBaseBase):
+    @staticmethod
+    def _has_msg_table(cursor) -> bool:
+        try:
+            cursor.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='MSG'")
+            return cursor.fetchone() is not None
+        except sqlite3.Error:
+            return False
 
     def _get_messages_by_num(self, cursor, username_, start_sort_seq, msg_num):
+        if not self._has_msg_table(cursor):
+            return []
         sql = '''
             select localId,TalkerId,Type,SubType,IsSender,CreateTime,Status,StrContent,strftime('%Y-%m-%d %H:%M:%S',CreateTime,'unixepoch','localtime') as StrTime,MsgSvrID,BytesExtra,CompressContent,DisplayContent
             from MSG
@@ -132,6 +141,8 @@ class Msg(DataBaseBase):
 
     def _get_messages_by_username(self, cursor, username: str,
                                   time_range: Tuple[int | float | str | date, int | float | str | date] = None, ):
+        if not self._has_msg_table(cursor):
+            return []
         if time_range:
             start_time, end_time = convert_to_timestamp(time_range)
         sql = f'''
@@ -178,9 +189,11 @@ class Msg(DataBaseBase):
     select localId,TalkerId,Type,SubType,IsSender,CreateTime,Status,StrContent,strftime('%Y-%m-%d %H:%M:%S',CreateTime,'unixepoch','localtime') as StrTime,MsgSvrID,BytesExtra,CompressContent,DisplayContent
     from MSG
     where MsgSvrID=?
-'''
+        '''
         for db in self.DB:
             cursor = db.cursor()
+            if not self._has_msg_table(cursor):
+                continue
             cursor.execute(sql, [server_id])
             result = cursor.fetchone()
             if result:
@@ -194,6 +207,8 @@ class Msg(DataBaseBase):
         @param username_:
         @return:
         """
+        if not self._has_msg_table(cursor):
+            return []
         sql = f'''SELECT DISTINCT strftime('%Y-%m-%d',CreateTime,'unixepoch','localtime') AS date
             from MSG
             where StrTalker=?
@@ -214,6 +229,8 @@ class Msg(DataBaseBase):
 
     def _get_messages_by_type(self, cursor, username: str, type_: MessageType,
                               time_range: Tuple[int | float | str | date, int | float | str | date] = None, ):
+        if not self._has_msg_table(cursor):
+            return []
         if time_range:
             start_time, end_time = convert_to_timestamp(time_range)
         local_type, sub_type = get_local_type(type_)

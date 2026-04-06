@@ -24,3 +24,10 @@ server
 *.spec
 test*
 wordcloud.html
+.venv/
+exports/
+restored_output/
+__pycache__/
+*.db-shm
+*.db-wal
+日志文件-*.log

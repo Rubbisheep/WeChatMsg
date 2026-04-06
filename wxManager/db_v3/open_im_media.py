@@ -27,12 +27,16 @@ class OpenIMMediaDB(DataBaseBase):
             where Reserved0 = ?
         '''
         cursor = self.DB.cursor()
-        cursor.execute(sql, [reserved0])
-        result = cursor.fetchone()
-        self.commit()
-        if result:
-            return result[0]
-        else:
+        try:
+            cursor.execute(sql, [reserved0])
+            result = cursor.fetchone()
+            self.commit()
+            if result:
+                return result[0]
+            else:
+                return None
+        except sqlite3.OperationalError as exc:
+            logger.warning(f'OpenIMMedia table unavailable, skipping audio payload lookup: {exc}')
             return None
 
     def merge(self, db_path):

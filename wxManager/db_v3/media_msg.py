@@ -34,10 +34,14 @@ class MediaMsg(DataBaseBase):
         '''
         for db in self.DB:
             cursor = db.cursor()
-            cursor.execute(sql, [reserved0])
-            result = cursor.fetchone()
-            if result:
-                return result[0]
+            try:
+                cursor.execute(sql, [reserved0])
+                result = cursor.fetchone()
+                if result:
+                    return result[0]
+            except sqlite3.OperationalError as exc:
+                logger.warning(f'Media table unavailable, skipping audio payload lookup: {exc}')
+                continue
         return None
 
     def get_audio(self, reserved0, output_path, filename=''):
